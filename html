@@ -127,17 +127,26 @@
   <datalist id="productList"></datalist>
 
   <script>
-    var productsDB=[], rowCount=0;
+    var productsDB = [];
+    var rowCount = 0;
+
+    // --- แก้ไข 1: ตอนโหลดหน้าเว็บ ไม่ต้องตั้งวันที่เอง รอ Server ส่งมา ---
     window.onload = function() {
-      var d = new Date(); document.getElementById('dashDate').value = d.toISOString().split('T')[0];
-      document.getElementById('reportMonth').value = d.getMonth()+1; document.getElementById('reportYear').value = d.getFullYear();
+      // ตั้งค่าเดือน/ปี สำหรับ Report รอไว้ก่อน (ใช้วันที่เครื่องได้ ไม่ซีเรียส)
+      var d = new Date(); 
+      document.getElementById('reportMonth').value = d.getMonth() + 1; 
+      document.getElementById('reportYear').value = d.getFullYear();
+      
+      // เรียกข้อมูลเริ่มต้นทันที
       loadInitialData(); 
     };
+
     function toggleView(v) {
         document.getElementById(v==='report'?'main-view':'report-view').classList.add('hidden');
         document.getElementById(v==='report'?'report-view':'main-view').classList.remove('hidden');
         if(v==='report') loadReportData();
     }
+
     // Report Logic
     function loadReportData() {
         var m=document.getElementById('reportMonth').value, y=document.getElementById('reportYear').value;
@@ -151,7 +160,6 @@
                <div class="col-md-4"><div class="report-card"><div class="report-icon icon-jetski"><i class="fa-solid fa-water"></i></div><div class="report-title">Jetski</div><div class="report-value text-primary">${fmt(res.summary.jetski.amount)}</div></div></div>
                <div class="col-md-4"><div class="report-card"><div class="report-icon icon-pp"><i class="fa-solid fa-ship"></i></div><div class="report-title">PP Tour</div><div class="report-value text-warning">${fmt(res.summary.pp.amount)}</div></div></div>`;
         document.getElementById('reportContent').innerHTML=h;
-        // Table logic simplified
         var t=`<table class="table mt-3"><thead><tr><th>วันที่</th><th class="text-end">ยอดรวม</th><th class="text-center">Jetski</th><th class="text-center">PP Tour</th></tr></thead><tbody>`;
         res.daily.forEach(d=>{ t+=`<tr><td>${d.dateStr}</td><td class="text-end fw-bold">${fmt(d.total)}</td><td class="text-center">${d.jetski.count} คัน</td><td class="text-center">${d.pp.count} ที่</td></tr>`; });
         document.getElementById('reportDailyTable').innerHTML=t+'</tbody></table>';
@@ -159,20 +167,32 @@
 
     // Main Logic
     function loadInitialData(){ google.script.run.withSuccessHandler(initData).getInitialData(); }
+    
     function initData(res){
       if(res.status==='error'){alert(res.message);return;}
+      
       document.getElementById('displayInvNo').innerText=res.invNo;
-      document.getElementById('invDate').value=res.date;
+      
+      // --- แก้ไข 2: ใช้วันที่จาก Server (res.date) ใส่ให้ทุกช่อง ---
+      // (Server เป็น Asia/Bangkok แล้ว ดังนั้นจะได้วันที่ 13 แน่นอน)
+      document.getElementById('invDate').value = res.date;
+      document.getElementById('dashDate').value = res.date; 
+      // -----------------------------------------------------
+
       var dl=document.getElementById('customerList'); dl.innerHTML=''; res.customers.forEach(c=>{var o=document.createElement('option');o.value=c;dl.appendChild(o)});
       productsDB=res.products; updateProductList();
       document.getElementById('tableBody').innerHTML=''; rowCount=0; addRow();
+      
+      // แสดง Dashboard (ซึ่ง Server ส่งข้อมูลของวันที่ 13 มาให้แล้ว)
       renderDashboard(res.dashboard);
       document.getElementById('loading').classList.add('hidden');
     }
+    
     function loadDashboard(){ 
       document.getElementById('statusList').innerHTML='Updating...';
       google.script.run.withSuccessHandler(renderDashboard).getDashboardData(document.getElementById('dashDate').value); 
     }
+    
     function renderDashboard(data){
       var c=document.getElementById('statusList'); c.innerHTML='';
       if(!data||data.length===0){c.innerHTML='<div class="text-center mt-5 text-muted">ไม่มีรายการ</div>';return;}
@@ -194,6 +214,7 @@
       if(gen.length>0){ c.insertAdjacentHTML('beforeend','<div class="group-header">ทั่วไป</div>'); gen.forEach(i=>c.insertAdjacentHTML('beforeend',itemHTML(i))); }
       if(jet.length>0){ c.insertAdjacentHTML('beforeend','<div class="group-header group-jetski">Jetski</div>'); jet.forEach(i=>c.insertAdjacentHTML('beforeend',itemHTML(i))); }
     }
+    
     function updStat(e,inv,st){ google.script.run.updateStatus(inv,st); setTimeout(loadDashboard,1000); }
     function quickSearch(inv){ document.getElementById('searchInput').value=inv; searchData(); }
     
