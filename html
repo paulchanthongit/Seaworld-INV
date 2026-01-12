@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    body { background-color: #f0f2f5; font-family: 'Sarabun', sans-serif; padding: 10px; margin: 0; min-height: 100vh; }
+    .main-wrapper { display: flex; gap: 20px; flex-wrap: wrap; min-height: 100vh; width: 100%; }
+    .form-section { flex: 2; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); min-width: 600px; }
+    .dashboard-section { flex: 1; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); min-width: 300px; height: fit-content; }
+    @media (max-width: 768px) {
+        body { padding: 5px; }
+        .main-wrapper { flex-direction: column; gap: 10px; }
+        .form-section, .dashboard-section { min-width: 100%; order: 1; }
+    }
+    .status-item { padding: 12px 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    .status-badge { font-size: 0.85em; padding: 5px 12px; border-radius: 20px; border: none; font-weight: bold; width: 100px; text-align: center; }
+    .status-sent { background-color: #fff3cd; color: #856404; }
+    .status-paid { background-color: #d4edda; color: #155724; }
+    .status-cancel { background-color: #f8d7da; color: #721c24; }
+    .loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.95); z-index:9999; display:flex; justify-content:center; align-items:center; flex-direction: column; }
+    .hidden { display: none !important; }
+    .input-danger { color: #dc3545 !important; font-weight: bold !important; }
+    .total-danger { color: #dc3545 !important; }
+    .group-header { background-color: #f1f3f5; padding: 10px; font-weight: bold; margin-top: 20px; display: flex; align-items: center; gap: 8px; border-left: 4px solid #6c757d; }
+    .group-jetski { background-color: #e7f5ff; color: #004085; border-left: 4px solid #0d6efd; }
+    .list-price { font-weight: 600; color: #198754; font-size: 0.95em; margin: 0 10px; white-space: nowrap; }
+    
+    /* Report Styles */
+    .report-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; transition: transform 0.2s; }
+    .report-card:hover { transform: translateY(-3px); }
+    .report-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5em; margin-bottom: 10px; }
+    .icon-money { background: #d1e7dd; color: #0f5132; }
+    .icon-jetski { background: #cff4fc; color: #055160; }
+    .icon-pp { background: #fff3cd; color: #664d03; }
+    .report-value { font-size: 1.8em; font-weight: bold; color: #212529; }
+    .pulse { animation: pulse-animation 2s infinite; }
+    @keyframes pulse-animation { 0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); } 100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); } }
+  </style>
+</head>
+<body>
+  <div id="loading" class="loading-overlay">
+    <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+    <h5 class="mt-3" id="loadingText">กำลังเชื่อมต่อ...</h5>
+    <small class="text-muted">กำลังสร้าง PDF รอประมาณ 5 วินาที...</small>
+  </div>
+
+  <div class="container-fluid pt-2">
+      <button class="btn btn-light text-primary" onclick="toggleView('report')" title="ดูภาพรวมรายเดือน"><i class="fa-solid fa-chart-line fa-lg"></i></button>
+  </div>
+
+  <div id="main-view" class="container-fluid main-wrapper mt-2">
+    <div class="form-section">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="text-primary fw-bold"><i class="fa-solid fa-anchor"></i> Sea World Phuket</h3>
+        <div class="text-end"><span class="badge bg-secondary">Invoice No.</span><h3 id="displayInvNo" class="text-danger fw-bold m-0">...</h3></div>
+      </div>
+
+      <div class="row align-items-center g-2 mb-4 bg-light p-3 rounded border">
+        <div class="col-auto"><i class="fa-solid fa-magnifying-glass text-muted"></i></div>
+        <div class="col"><input type="text" id="searchInput" class="form-control" placeholder="พิมพ์เลข Invoice เพื่อแก้ไข..."></div>
+        <div class="col-auto"><button class="btn btn-primary" onclick="searchData()">ดึงข้อมูล</button></div>
+      </div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-md-3"><label class="form-label">วันที่</label><input type="date" id="invDate" class="form-control"></div>
+        <div class="col-md-5"><label class="form-label">ลูกค้า</label><input type="text" id="customer" class="form-control" list="customerList"></div>
+        <div class="col-md-4"><label class="form-label">ที่อยู่</label><input type="text" id="address" class="form-control" placeholder="-"></div>
+      </div>
+      <datalist id="customerList"></datalist>
+
+      <div class="table-responsive mb-3">
+        <table class="table table-hover align-middle">
+          <thead class="table-light">
+            <tr><th width="5%">#</th><th width="40%">รายการ</th><th width="15%" class="text-center">จำนวน</th><th width="20%" class="text-end">ราคา</th><th width="15%" class="text-end">รวม</th><th width="5%"></th></tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <button class="btn btn-outline-primary mb-4" onclick="addRow()"><i class="fa-solid fa-plus"></i> เพิ่มรายการ</button>
+
+      <div class="text-end mb-4"><h4>ยอดรวม: <span id="grandTotal" class="text-primary fw-bold">0.00</span></h4></div>
+      <div class="mb-4"><label class="form-label text-muted">หมายเหตุ</label><textarea id="notes" class="form-control" rows="2"></textarea></div>
+
+      <hr>
+      <div class="d-flex justify-content-center gap-2">
+        <button class="btn btn-secondary" onclick="resetForm()"><i class="fa-solid fa-rotate-left"></i> ล้างค่า</button>
+        <button class="btn btn-success" onclick="saveData('invoice')"><i class="fa-solid fa-print"></i> Invoice</button>
+        <button class="btn btn-warning text-white" onclick="saveData('receipt')"><i class="fa-solid fa-receipt"></i> ใบเสร็จ</button>
+      </div>
+      
+      <div id="downloadArea" class="mt-4 text-center hidden">
+          <div class="alert alert-success">
+              <h5 id="successTitle">✅ สร้างไฟล์เรียบร้อย!</h5>
+              <a id="downloadBtn" href="#" target="_blank" class="btn btn-primary btn-lg mt-2 pulse"><i class="fa-solid fa-eye"></i> เปิดดู PDF</a>
+          </div>
+      </div>
+    </div>
+
+    <div class="dashboard-section">
+      <div class="d-flex justify-content-between mb-3">
+        <h5 class="fw-bold"><i class="fa-solid fa-list-check"></i> บิลรายวัน</h5>
+        <input type="date" id="dashDate" class="form-control form-control-sm w-auto" onchange="loadDashboard()">
+      </div>
+      <div id="statusList"></div>
+    </div>
+  </div>
+
+  <div id="report-view" class="container mt-4 hidden">
+      <div class="d-flex justify-content-between mb-4">
+          <h2 class="text-primary fw-bold">ภาพรวมรายเดือน</h2>
+          <button class="btn btn-outline-secondary" onclick="toggleView('main')">กลับหน้าหลัก</button>
+      </div>
+      <div class="card p-3 mb-4 shadow-sm">
+          <div class="row g-3 align-items-end">
+              <div class="col-md-3"><label>เดือน</label><select id="reportMonth" class="form-select"><option value="1">มกราคม</option><option value="2">กุมภาพันธ์</option><option value="3">มีนาคม</option><option value="4">เมษายน</option><option value="5">พฤษภาคม</option><option value="6">มิถุนายน</option><option value="7">กรกฎาคม</option><option value="8">สิงหาคม</option><option value="9">กันยายน</option><option value="10">ตุลาคม</option><option value="11">พฤศจิกายน</option><option value="12">ธันวาคม</option></select></div>
+              <div class="col-md-3"><label>ปี</label><input type="number" id="reportYear" class="form-control" value="2026"></div>
+              <div class="col-md-2"><button class="btn btn-primary w-100" onclick="loadReportData()">ดูข้อมูล</button></div>
+          </div>
+      </div>
+      <div id="reportContent" class="row"></div>
+      <div id="reportDailyTable" class="mt-4 mb-5"></div>
+  </div>
+  <datalist id="productList"></datalist>
+
+  <script>
+    var productsDB=[], rowCount=0;
+    window.onload = function() {
+      var d = new Date(); document.getElementById('dashDate').value = d.toISOString().split('T')[0];
+      document.getElementById('reportMonth').value = d.getMonth()+1; document.getElementById('reportYear').value = d.getFullYear();
+      loadInitialData(); 
+    };
+    function toggleView(v) {
+        document.getElementById(v==='report'?'main-view':'report-view').classList.add('hidden');
+        document.getElementById(v==='report'?'report-view':'main-view').classList.remove('hidden');
+        if(v==='report') loadReportData();
+    }
+    // Report Logic
+    function loadReportData() {
+        var m=document.getElementById('reportMonth').value, y=document.getElementById('reportYear').value;
+        document.getElementById('reportContent').innerHTML='<div class="text-center py-5">Loading...</div>';
+        google.script.run.withSuccessHandler(renderReport).getReportData(m,y);
+    }
+    function renderReport(res){
+        if(res.status!=='success'){ document.getElementById('reportContent').innerHTML='No Data'; return; }
+        var fmt=(n)=>n.toLocaleString('en-US',{minimumFractionDigits:2});
+        var h=`<div class="col-md-4"><div class="report-card"><div class="report-icon icon-money"><i class="fa-solid fa-sack-dollar"></i></div><div class="report-title">รวมยอดขาย</div><div class="report-value text-success">${fmt(res.summary.total)}</div></div></div>
+               <div class="col-md-4"><div class="report-card"><div class="report-icon icon-jetski"><i class="fa-solid fa-water"></i></div><div class="report-title">Jetski</div><div class="report-value text-primary">${fmt(res.summary.jetski.amount)}</div></div></div>
+               <div class="col-md-4"><div class="report-card"><div class="report-icon icon-pp"><i class="fa-solid fa-ship"></i></div><div class="report-title">PP Tour</div><div class="report-value text-warning">${fmt(res.summary.pp.amount)}</div></div></div>`;
+        document.getElementById('reportContent').innerHTML=h;
+        // Table logic simplified
+        var t=`<table class="table mt-3"><thead><tr><th>วันที่</th><th class="text-end">ยอดรวม</th><th class="text-center">Jetski</th><th class="text-center">PP Tour</th></tr></thead><tbody>`;
+        res.daily.forEach(d=>{ t+=`<tr><td>${d.dateStr}</td><td class="text-end fw-bold">${fmt(d.total)}</td><td class="text-center">${d.jetski.count} คัน</td><td class="text-center">${d.pp.count} ที่</td></tr>`; });
+        document.getElementById('reportDailyTable').innerHTML=t+'</tbody></table>';
+    }
+
+    // Main Logic
+    function loadInitialData(){ google.script.run.withSuccessHandler(initData).getInitialData(); }
+    function initData(res){
+      if(res.status==='error'){alert(res.message);return;}
+      document.getElementById('displayInvNo').innerText=res.invNo;
+      document.getElementById('invDate').value=res.date;
+      var dl=document.getElementById('customerList'); dl.innerHTML=''; res.customers.forEach(c=>{var o=document.createElement('option');o.value=c;dl.appendChild(o)});
+      productsDB=res.products; updateProductList();
+      document.getElementById('tableBody').innerHTML=''; rowCount=0; addRow();
+      renderDashboard(res.dashboard);
+      document.getElementById('loading').classList.add('hidden');
+    }
+    function loadDashboard(){ 
+      document.getElementById('statusList').innerHTML='Updating...';
+      google.script.run.withSuccessHandler(renderDashboard).getDashboardData(document.getElementById('dashDate').value); 
+    }
+    function renderDashboard(data){
+      var c=document.getElementById('statusList'); c.innerHTML='';
+      if(!data||data.length===0){c.innerHTML='<div class="text-center mt-5 text-muted">ไม่มีรายการ</div>';return;}
+      var fmt=(n)=>parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2});
+      var gen=data.filter(i=>!i.isJetski), jet=data.filter(i=>i.isJetski);
+      
+      var itemHTML=(i)=>{
+        var cls='bg-secondary';
+        if(i.status=='ส่งบิลแล้ว')cls='status-sent'; else if(i.status=='จ่ายแล้ว')cls='status-paid'; else if(i.status=='แคนเซิล')cls='status-cancel';
+        return `<div class="status-item"><div><div class="fw-bold" style="cursor:pointer" onclick="quickSearch('${i.invNo}')">${i.invNo}</div><small class="text-muted">${i.customer}</small></div>
+                <div class="list-price">${fmt(i.total)}</div>
+                <div class="dropdown"><button class="btn btn-sm ${cls} status-badge dropdown-toggle" data-bs-toggle="dropdown">${i.status||'รอ'}</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" onclick="updStat(event,'${i.invNo}','ส่งบิลแล้ว')">🟡 ส่งบิลแล้ว</a></li>
+                  <li><a class="dropdown-item" onclick="updStat(event,'${i.invNo}','จ่ายแล้ว')">🟢 จ่ายแล้ว</a></li>
+                  <li><a class="dropdown-item" onclick="updStat(event,'${i.invNo}','แคนเซิล')">🔴 แคนเซิล</a></li>
+                </ul></div></div>`;
+      };
+      if(gen.length>0){ c.insertAdjacentHTML('beforeend','<div class="group-header">ทั่วไป</div>'); gen.forEach(i=>c.insertAdjacentHTML('beforeend',itemHTML(i))); }
+      if(jet.length>0){ c.insertAdjacentHTML('beforeend','<div class="group-header group-jetski">Jetski</div>'); jet.forEach(i=>c.insertAdjacentHTML('beforeend',itemHTML(i))); }
+    }
+    function updStat(e,inv,st){ google.script.run.updateStatus(inv,st); setTimeout(loadDashboard,1000); }
+    function quickSearch(inv){ document.getElementById('searchInput').value=inv; searchData(); }
+    
+    function saveData(type){
+      var cust=document.getElementById('customer').value; if(!cust){alert("ใส่ชื่อลูกค้า");return;}
+      var items=[]; document.querySelectorAll('#tableBody tr').forEach(r=>{
+          var d=r.querySelector('.item-desc').value;
+          if(d)items.push({desc:d, qty:r.querySelector('.item-qty').value, price:r.querySelector('.item-price').value});
+      });
+      if(items.length===0){alert("ไม่มีสินค้า");return;}
+      
+      document.getElementById('loading').classList.remove('hidden');
+      document.getElementById('downloadArea').classList.add('hidden');
+      var form={
+        invNo:document.getElementById('displayInvNo').innerText, date:document.getElementById('invDate').value,
+        customer:cust, address:document.getElementById('address').value, notes:document.getElementById('notes').value, items:items
+      };
+      google.script.run.withSuccessHandler(function(res){
+        document.getElementById('loading').classList.add('hidden');
+        if(res.status==='success'){
+           document.getElementById('downloadBtn').href=res.url;
+           document.getElementById('downloadArea').classList.remove('hidden');
+           renderDashboard(res.dashboard);
+           window.open(res.url,'_blank');
+        } else alert(res.message);
+      }).processInvoice(form,type);
+    }
+    function searchData(){
+      var inv=document.getElementById('searchInput').value; if(!inv)return;
+      document.getElementById('loading').classList.remove('hidden');
+      google.script.run.withSuccessHandler(function(res){
+         document.getElementById('loading').classList.add('hidden');
+         if(res.status==='error'){alert(res.message);return;}
+         document.getElementById('displayInvNo').innerText=res.invNo;
+         document.getElementById('invDate').value=res.date;
+         document.getElementById('customer').value=res.customer;
+         document.getElementById('address').value=res.address;
+         document.getElementById('notes').value=res.notes;
+         document.getElementById('tableBody').innerHTML='';
+         res.items.forEach(i=>addRow(i.desc,i.qty,i.price));
+         if(res.items.length===0)addRow(); calcTotal();
+      }).searchInvoice(inv);
+    }
+    function resetForm(){
+       document.getElementById('searchInput').value=''; document.getElementById('customer').value=''; document.getElementById('address').value=''; document.getElementById('notes').value='';
+       document.getElementById('downloadArea').classList.add('hidden'); loadInitialData();
+    }
+    function updateDatalist(id,list){var dl=document.getElementById(id);dl.innerHTML='';list.forEach(v=>{var o=document.createElement('option');o.value=v;dl.appendChild(o)});}
+    function updateProductList(){var l=productsDB.map(p=>p.name);var dl=document.getElementById('productList');dl.innerHTML='';l.forEach(v=>{var o=document.createElement('option');o.value=v;dl.appendChild(o)});}
+    
+    function addRow(d="",q=1,p=0){
+      rowCount++; var tr=document.createElement('tr');
+      tr.innerHTML=`<td class="text-center text-muted">${rowCount}</td>
+        <td><input class="form-control item-desc" list="productList" value="${d}" onchange="autoPrice(this);calc(this)" oninput="calc(this)"></td>
+        <td><input type="number" class="form-control item-qty text-center" value="${q}" oninput="calc(this)"></td>
+        <td><input type="number" class="form-control item-price text-end" value="${p}" oninput="calc(this)"></td>
+        <td class="text-end fw-bold item-total pt-2">0.00</td>
+        <td><button class="btn btn-outline-danger border-0" onclick="this.closest('tr').remove();calcT()"><i class="fa-solid fa-trash"></i></button></td>`;
+      document.getElementById('tableBody').appendChild(tr); calc(tr.querySelector('.item-qty'));
+    }
+    function autoPrice(el){ var f=productsDB.find(p=>p.name===el.value); if(f)el.closest('tr').querySelector('.item-price').value=f.price; }
+    function calc(el){
+      var r=el.closest('tr'), q=r.querySelector('.item-qty'), p=r.querySelector('.item-price'), t=r.querySelector('.item-total');
+      var tot=(parseFloat(q.value)||0)*(parseFloat(p.value)||0); t.innerText=tot.toLocaleString('en-US',{minimumFractionDigits:2});
+      var isNeg=tot<0||r.querySelector('.item-desc').value.toLowerCase().includes('cash on tour');
+      if(isNeg){q.classList.add('input-danger');p.classList.add('input-danger');t.classList.add('total-danger');}
+      else{q.classList.remove('input-danger');p.classList.remove('input-danger');t.classList.remove('total-danger');}
+      calcT();
+    }
+    function calcT(){
+      var s=0; document.querySelectorAll('.item-total').forEach(t=>s+=parseFloat(t.innerText.replace(/,/g,'')));
+      var g=document.getElementById('grandTotal'); g.innerText=s.toLocaleString('en-US',{minimumFractionDigits:2});
+      if(s<0){g.classList.add('total-danger');g.classList.remove('text-primary');}else{g.classList.remove('total-danger');g.classList.add('text-primary');}
+    }
+  </script>
+</body>
+</html>
