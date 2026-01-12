@@ -1,0 +1,276 @@
+// --- ตั้งค่าชื่อชีท ---
+var SHEET_INVOICE = "อินวอย";      
+var SHEET_RECEIPT = "ใบเสร็จ";     
+var SHEET_DATA    = "ฐานข้อมูล";    
+var SHEET_PRODUCTS = "Products"; 
+var TIMEZONE      = "Asia/Bangkok"; 
+
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('Index')
+      .evaluate()
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL) 
+      .setTitle('ระบบออกใบแจ้งหนี้ - Sea World');
+}
+
+function getInitialData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    var nextInv = invoiceNextNumber(ss); 
+    var dbSheet = ss.getSheetByName(SHEET_DATA);
+    var customers = [];
+    if (dbSheet && dbSheet.getLastRow() > 1) {
+      var data = dbSheet.getRange("C2:C" + dbSheet.getLastRow()).getValues();
+      var unique = {};
+      data.forEach(function(r){ if(r[0]) unique[r[0]] = true; });
+      customers = Object.keys(unique);
+    }
+    
+    var prodSheet = ss.getSheetByName(SHEET_PRODUCTS);
+    var products = [];
+    if (prodSheet && prodSheet.getLastRow() > 1) { 
+      var pData = prodSheet.getDataRange().getValues();
+      for(var i=1; i<pData.length; i++){
+        if(pData[i][0]) products.push({ name: pData[i][0], price: pData[i][1] });
+      }
+    }
+
+    var todayStr = Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd");
+    var dashboardData = getDashboardData(todayStr);
+
+    return { 
+      status: "success", invNo: nextInv, date: todayStr, 
+      customers: customers, products: products, dashboard: dashboardData
+    };
+  } catch (e) {
+    return { status: "error", message: e.toString() };
+  }
+}
+
+function getDashboardData(dateStr) { 
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DATA);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var data = sheet.getDataRange().getValues();
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    var dateCell = data[i][1]; 
+    if (dateCell instanceof Date) {
+      var rowDate = Utilities.formatDate(dateCell, TIMEZONE, "yyyy-MM-dd");
+      if (rowDate === dateStr) {
+        var itemsStr = data[i][4] ? data[i][4].toString().toLowerCase() : "";
+        var isJetski = itemsStr.indexOf("jetski") > -1 || itemsStr.indexOf("เจ็ทสกี") > -1 || itemsStr.indexOf("seadoo") > -1 || itemsStr.indexOf("yamaha") > -1;
+        result.push({ invNo: data[i][0], customer: data[i][2], total: data[i][7], status: data[i][8], isJetski: isJetski });
+      }
+    }
+  }
+  return result.reverse();
+}
+
+function getReportData(month, year) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DATA);
+  if (!sheet || sheet.getLastRow() < 2) return { status: 'empty' };
+  var data = sheet.getDataRange().getValues();
+  var totalRevenue=0, jetskiCount=0, jetskiRevenue=0, ppCount=0, ppRevenue=0;
+  var dailyMap = {};
+
+  for (var i = 1; i < data.length; i++) {
+    var dateCell = data[i][1]; 
+    var status = data[i][8]; 
+    if (dateCell instanceof Date && status !== 'แคนเซิล') {
+      var dateString = Utilities.formatDate(dateCell, TIMEZONE, "yyyy-MM-dd");
+      var parts = dateString.split("-"); 
+      if (parseInt(parts[1]) == month && parseInt(parts[0]) == year) {
+        var rowTotal = Number(data[i][7] || 0);
+        totalRevenue += rowTotal;
+        var pDay = parseInt(parts[2]);
+        if (!dailyMap[pDay]) dailyMap[pDay] = { day: pDay, dateStr: dateString, total: 0, jetski: {count:0, amount:0}, pp: {count:0, amount:0} };
+        dailyMap[pDay].total += rowTotal;
+        
+        var itemsStr = data[i][4] ? data[i][4].toString() : "";
+        if (itemsStr.indexOf("::") > -1) {
+          var rawItems = itemsStr.split("||");
+          rawItems.forEach(function(item) {
+            var p = item.split("::"); 
+            if (p.length >= 3) {
+              var name = p[0].toLowerCase(), qty = Number(p[1]||0), amt = qty * Number(p[2]||0);
+              if (name.indexOf("jetski") > -1 || name.indexOf("เจ็ทสกี") > -1) {
+                jetskiCount += qty; jetskiRevenue += amt; dailyMap[pDay].jetski.count += qty; dailyMap[pDay].jetski.amount += amt;
+              } else if (name.indexOf("pp") > -1 || name.indexOf("พีพี") > -1) {
+                ppCount += qty; ppRevenue += amt; dailyMap[pDay].pp.count += qty; dailyMap[pDay].pp.amount += amt;
+              }
+            }
+          });
+        }
+      }
+    }
+  }
+  var dailyArray = []; for (var key in dailyMap) dailyArray.push(dailyMap[key]);
+  dailyArray.sort(function(a, b) { return a.day - b.day; });
+  return { status: 'success', month: month, year: year, summary: { total: totalRevenue, jetski: { count: jetskiCount, amount: jetskiRevenue }, pp: { count: ppCount, amount: ppRevenue } }, daily: dailyArray };
+}
+
+function updateStatus(invNo, newStatus) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_DATA);
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] == invNo) { sheet.getRange(i + 1, 9).setValue(newStatus); SpreadsheetApp.flush(); return { status: 'success' }; }
+  }
+  return { status: 'error' };
+}
+
+function searchInvoice(invNo) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetData = ss.getSheetByName(SHEET_DATA);
+  if (!sheetData) return { status: 'error', message: 'ไม่พบฐานข้อมูล' };
+  var data = sheetData.getDataRange().getValues();
+  var foundData = null;
+  for (var i = 1; i < data.length; i++) { if (data[i][0] == invNo) { foundData = data[i]; break; } }
+  if (!foundData) return { status: 'error', message: 'ไม่พบเลขบิล' };
+  var items = [];
+  if (foundData[4] && foundData[4].toString().indexOf("::") > -1) {
+    var rawItems = foundData[4].toString().split("||");
+    rawItems.forEach(function(itemStr) {
+      var parts = itemStr.split("::");
+      if (parts.length >= 3) items.push({ desc: parts[0], qty: parts[1], price: parts[2] });
+    });
+  }
+  return { status: 'success', invNo: foundData[0], date: Utilities.formatDate(new Date(foundData[1]), TIMEZONE, "yyyy-MM-dd"), customer: foundData[2], address: foundData[3], notes: foundData[11], items: items };
+}
+
+// ========================================================
+// ฟังก์ชันหลักที่แก้ไขให้ตรงกับชีทปัจจุบัน (แถว 36 และ 52)
+// ========================================================
+function processInvoice(form, docType) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetData = ss.getSheetByName(SHEET_DATA);
+    var printSheet = ss.getSheetByName((docType === 'receipt') ? SHEET_RECEIPT : SHEET_INVOICE);
+    
+    if (!printSheet) throw new Error("ไม่พบชีทพิมพ์");
+
+    // [1] เคลียร์ข้อมูลเก่า (กลับไปใช้ตำแหน่งเดิมของชีทคุณ)
+    printSheet.getRange('B9:B15').clearContent(); 
+    printSheet.getRange('A18:E35').clearContent(); // เคลียร์รายการสินค้า 18 บรรทัด
+    printSheet.getRange('E36:E38').clearContent(); // เคลียร์ยอดรวมที่บรรทัด 36-38
+
+    // [2] เขียน Header
+    printSheet.getRange('B9').setValue(form.invNo);
+    var dateParts = form.date.split("-");
+    var dateObj = new Date(dateParts[0], dateParts[1]-1, dateParts[2]);
+    dateObj.setHours(12, 0, 0, 0); 
+    printSheet.getRange('B10').setValue(dateObj);   
+    printSheet.getRange('B12').setValue(form.customer); 
+    printSheet.getRange('B13').setValue(form.address);  
+    if (docType === 'receipt') printSheet.getRange('B15').setValue(form.invNo);
+
+    // [3] เขียนรายการสินค้า (กลับไปรองรับ 18 รายการ)
+    var itemsArr = form.items; 
+    var saveStringItems = []; 
+    var subTotal = 0;
+    var maxRows = 18; 
+
+    for (var i = 0; i < itemsArr.length; i++) {
+      if (i >= maxRows) break; 
+      var item = itemsArr[i];
+      var row = 18 + i; 
+      
+      printSheet.getRange('A' + row).setValue(i + 1);
+      printSheet.getRange('B' + row).setValue(item.desc);
+      printSheet.getRange('C' + row).setValue(item.qty);
+      printSheet.getRange('D' + row).setValue(item.price);
+      printSheet.getRange('E' + row).setFormula('=C'+row+'*D'+row);
+      
+      saveStringItems.push(item.desc + "::" + item.qty + "::" + item.price);
+      subTotal += (item.qty * item.price);
+    }
+    
+    printSheet.getRange('C18:C35').setHorizontalAlignment("center");
+    printSheet.getRange('D18:E35').setHorizontalAlignment("right");
+
+    // [4] เขียนยอดรวม (กลับไปที่บรรทัด 36)
+    printSheet.getRange('E36').setValue(subTotal); 
+    printSheet.getRange('E37').setValue(0); // VAT    
+    printSheet.getRange('E38').setValue(subTotal); 
+    
+    SpreadsheetApp.flush(); 
+
+    // [5] บันทึกลงฐานข้อมูล
+    var vat = 0, total = subTotal + vat;
+    var itemStr = saveStringItems.join("||");
+    var status = (docType === 'receipt') ? "จ่ายแล้ว" : "ส่งบิลแล้ว";
+
+    var rowData = [
+      form.invNo, dateObj, form.customer, form.address, itemStr, subTotal, vat, total, 
+      status, "", "", form.notes, Session.getActiveUser().getEmail(), new Date()
+    ];
+
+    var data = sheetData.getDataRange().getValues();
+    var foundRowIndex = -1;
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] == form.invNo) { foundRowIndex = i + 1; break; }
+    }
+    if (foundRowIndex > 0) sheetData.getRange(foundRowIndex, 1, 1, rowData.length).setValues([rowData]);
+    else sheetData.appendRow(rowData);
+    
+    // [6] สร้าง PDF
+    SpreadsheetApp.flush(); 
+    Utilities.sleep(4000); 
+
+    var prefix = (docType === 'receipt') ? "Receipt_" : "Invoice_";
+    var pdfUrl = createPdf(ss, printSheet, prefix + form.invNo);
+    var updatedDashboard = getDashboardData(Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd"));
+
+    return { status: 'success', url: pdfUrl, type: docType, dashboard: updatedDashboard };
+
+  } catch (e) {
+    return { status: 'error', message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function createPdf(ss, sheet, fileName) {
+  // ** ปรับขอบเขตการปริ้น ให้ครอบคลุมถึงบรรทัด 52 (เพื่อให้เห็นเลขบัญชีแน่นอน) **
+  var url = "https://docs.google.com/spreadsheets/d/" + ss.getId() + "/export?" +
+            "exportFormat=pdf&format=pdf" +
+            "&size=A4&portrait=true" +
+            "&fitw=true" +  // บีบให้พอดีความกว้าง
+            "&sheetnames=false&printtitle=false&pagenumbers=false&gridlines=false" +
+            "&fzr=false&gid=" + sheet.getSheetId() + 
+            "&range=A1:E52"; // ** ล็อคถึงบรรทัด 52 รับรองข้อมูลมาครบ **
+
+  var token = ScriptApp.getOAuthToken();
+  var response = UrlFetchApp.fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+  var blob = response.getBlob().setName(fileName);
+  
+  var files = DriveApp.getFilesByName(fileName);
+  while (files.hasNext()) files.next().setTrashed(true); 
+
+  var file = DriveApp.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  
+  return "https://drive.google.com/file/d/" + file.getId() + "/view";
+}
+
+function invoiceNextNumber(ss){
+  if(!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dt = new Date();
+  var prefix = Utilities.formatDate(dt, TIMEZONE, 'yyyyMM') + '-';
+  var dataSheet = ss.getSheetByName(SHEET_DATA);
+  if(!dataSheet || dataSheet.getLastRow() < 2) return prefix + '010';
+  var data = dataSheet.getRange(2, 1, dataSheet.getLastRow()-1, 1).getValues();
+  var maxNum = 0;
+  for(var i=0; i<data.length; i++){
+    var str = data[i][0].toString();
+    if(str.indexOf(prefix) === 0) {
+      var num = parseInt(str.replace(prefix, ''));
+      if(!isNaN(num) && num > maxNum) maxNum = num;
+    }
+  }
+  return maxNum < 9 ? prefix + '010' : prefix + Utilities.formatString('%03d', maxNum + 1);
+}
